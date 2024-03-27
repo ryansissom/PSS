@@ -1,0 +1,166 @@
+import json
+import tkinter as tk
+from tkinter import filedialog
+from tkinter import messagebox
+import pandas as pd
+import openpyxl
+from openpyxl.utils.dataframe import dataframe_to_rows
+from openpyxl import load_workbook
+from openpyxl import Workbook
+import shutil
+import os
+import time
+
+# Read Only Template
+original_filepath = "C:/Users/Ryan.Sissom/OneDrive - PSS Industrial Group/Quote Tool Files/old_quote_template.xlsx"
+# Copied from Read Only into Write file
+copied_filepath = "C:/Users/Ryan.Sissom/OneDrive - PSS Industrial Group/Quote Tool Files/copied_quotes_template.xlsx"
+# Master Json
+master_json = "C:/Users/Ryan.Sissom/OneDrive - PSS Industrial Group/Quote Tool Files/master_dictionary.json"
+
+# Opens Excel into a clearn write template for upload
+def open_clean_template():
+    proceed = messagebox.askokcancel("Warning", "This will create a blank template.")
+    if not proceed:
+        return
+    # Define the destination path for the copy
+    destination_path = "C:/Users/Ryan.Sissom/Documents/quotes/"
+    # Create a copy of the template file if it doesn't exist
+    shutil.copyfile(original_filepath, copied_filepath)
+    # Open the copied Excel template in the default application
+    os.startfile(copied_filepath)
+
+# Opens current work file
+def open_excel_template():
+    os.startfile(copied_filepath)
+
+# def verify_header():
+#     # Verify Quote Header Info
+#     wb = openpyxl.load_workbook(copied_filepath)
+#     sheet = wb.active
+#     # Define the cells to check for completeness and their corresponding error messages
+#     cells_to_check = {
+#         'A1': 'Customer Number',
+#         'B1': 'Ship To',
+#         'A2': 'Warehouse Number',
+#         'B2': 'Order Type',
+#         'A4': 'Ship Via',
+#         'B5': 'Date (mm/dd/yy)'
+#     }
+#
+#     # Check each cell for completeness
+#     if not (str(sheet['A1'].value).isdigit() and len(str(sheet['A1'].value)) != 7):
+#         print("False")
+#
+#     for cell, field_name in cells_to_check.items():
+#         if sheet[cell].value is None or sheet[cell].value == '':
+#             print(f"Error: Please fill out {field_name} in cell {cell}")
+#             return False
+#
+#     # If all cells are complete, save the file
+#     print("All required fields are complete. File saved successfully.")
+#     return True
+
+
+# Scans descriptions for matching part numbers in master json and adds new desc:partno pairs
+def match_part_numbers():
+    wb = load_workbook(copied_filepath)
+    ws = wb.active
+    customer_number = ws['A1'].value
+    customer_number = str(customer_number)
+    if len(customer_number) != 7:
+        return messagebox.showinfo("Error", "Incorrect Customer Number Format. Please make sure it is a 7 digit number")
+    if not customer_number.isdigit():
+        return messagebox.showinfo("Error", "Incorrect Customer Number Format. Please make sure it is a 7 digit number")
+    # Match existing part numbers to list
+    copied_df = pd.read_excel(copied_filepath, header=7)
+    copied_df['Item Description'] = copied_df['Item Description'].str.upper()
+    with open(master_json, "r") as json_file:
+        data = json.load(json_file)
+    # Check if the customer number exists in the JSON data
+    if customer_number in data["catalog"]:
+        # Get the part descriptions for the specified customer number
+        part_descriptions = data["catalog"][customer_number]
+        # Iterate through your DataFrame
+        for index, description in enumerate(copied_df["Item Description"]):
+            # Check if the description exists in the part descriptions for the specified customer number
+            for key, value in part_descriptions.items():
+                if description in key:
+                    copied_df.at[index, "Item #"] = value
+    else:
+        build_customerno = messagebox.askokcancel("Warning", f"Customer number '{customer_number}' not found in the catalog. Press 'OK' to add customer number to catalog. Press 'Cancel' to go back.")
+        if build_customerno:
+            data["catalog"][customer_number] = {}
+            with open(master_json, "w") as json_file:
+                json.dump(data, json_file, indent=4)
+            messagebox.showinfo("Data Added", "New Customer Number Added")
+        else:
+            return
+    # Add matched data to excel
+    start_row = 8
+    start_col = 1
+    for col, header in enumerate(copied_df.columns, start_col):
+        ws.cell(row=start_row, column=col, value=header)
+    rows = dataframe_to_rows(copied_df, index=False, header=True)
+    for r_idx, row in enumerate(rows, start_row):
+        for c_idx, value in enumerate(row, start_col):
+            ws.cell(row=r_idx, column=c_idx, value=value)
+    wb.save(copied_filepath)
+    os.startfile(copied_filepath)
+
+#standardize formats, check for fields, and save file to local system
+def save_file_for_upload():
+    wb = load_workbook(copied_filepath)
+    ws = wb.active
+    customer_number = ws['A1'].value
+    customer_number = str(customer_number)
+    # Check no edits to existing archived values have been made
+    copied_df = pd.read_excel(copied_filepath, header=7)
+    copied_df_partno_only = copied_df.dropna(subset=['Item #'])
+    data_dict = dict(zip(copied_df_partno_only["Item Description"], copied_df_partno_only["Item #"]))
+    with open(master_json, "r") as json_file:
+        json_dict = json.load(json_file)
+    if set(data_dict.keys()).issubset(json_dict['catalog'][customer_number].keys()):
+        messagebox.showinfo("Upload Complete", "No new parts numbers archived")
+    else:
+        json_dict['catalog'][customer_number].update(data_dict)
+        with open(master_json, "w") as json_file:
+            json.dump(json_dict,json_file,indent=4)
+        messagebox.showinfo("Upload Complete", "New part numbers archived")
+# Save file to computer for upload
+def save_to_local():
+    # Ask the user for the file location to save
+    file_path = filedialog.asksaveasfilename(defaultextension=".xlsx", filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")])
+    if file_path:
+        # Copy the current Excel file to the specified location
+        shutil.copyfile(copied_filepath, file_path)
+        messagebox.showinfo("File Saved", f"File saved successfully at {file_path}")
+
+root = tk.Tk()
+root.title("Quote Tool")# Get the screen width and height
+screen_width = root.winfo_screenwidth()
+screen_height = root.winfo_screenheight()
+# Calculate the position to center the window
+x = (screen_width - 400) // 2
+y = (screen_height - 200) // 3
+# Set the window position and size
+root.geometry(f"400x400+{x}+{y}")
+
+# Create buttons to interact with the Excel template
+clean_button = tk.Button(root, text="Open Clean Template", command=open_clean_template)
+clean_button.pack(pady=20)
+
+open_button = tk.Button(root, text="Open Excel Template", command=open_excel_template)
+open_button.pack(pady=20)
+
+match_button = tk.Button(root, text="Get Parts Data", command= match_part_numbers)
+match_button.pack(pady=20)
+
+upload_button = tk.Button(root, text="Upload Part Numbers to Database", command=save_file_for_upload)
+upload_button.pack(pady=20)
+
+save_button = tk.Button(root, text="Save File to PC", command=save_to_local)
+save_button.pack(pady=20)
+
+# Run the Tkinter event loop
+root.mainloop()
