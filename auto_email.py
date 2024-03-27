@@ -1,58 +1,55 @@
 import pandas as pd
-from datetime import datetime
-import pandas as pd
+from datetime import datetime, timedelta
 import win32com.client as win32
-import os
 
-current_date = datetime.now().strftime("%m.%d.%Y")
-print(current_date)
+# Get the current date and the Monday date of the current week
+current_date = datetime.now()
+monday_date = current_date - timedelta(days=current_date.weekday())
+formatted_monday_date = monday_date.strftime("%Y-%m-%d")
+# Formulate the file path based on the Monday date
+file_path = f'C:/Users/Ryan.Sissom/Documents/Craddle-2-Grave-{formatted_monday_date}.xlsx'
+# Load the Excel file
+excel_file = pd.ExcelFile(file_path)
+# Get the current date as a string
+current_date_str = datetime.now().strftime("%Y-%m-%d")
 
-# Read the Excel file into a DataFrame
-xls = pd.ExcelFile('C:/Users/Ryan.Sissom/Documents/c2gTEST.xlsx')
+# Formulate the output file paths including the Monday date
+output_file_for_donna_path = f'C:/Users/Ryan.Sissom/Documents/for_donna_{formatted_monday_date}.xlsx'
+output_file_for_deepak_path = f'C:/Users/Ryan.Sissom/Documents/for_deepak_{formatted_monday_date}.xlsx'
 
-# Define the output file paths
-equal_output_file = 'C:/Users/Ryan.Sissom/Documents/for_donna.xlsx'
-not_equal_output_file = 'C:/Users/Ryan.Sissom/Documents/not_equal_output.xlsx'
+output_file_for_donna = pd.ExcelWriter(output_file_for_donna_path, engine='xlsxwriter')
+output_file_for_deepak = pd.ExcelWriter(output_file_for_deepak_path, engine='xlsxwriter')
 
-# Create Excel writers with openpyxl engine for the output files
-with pd.ExcelWriter(equal_output_file, engine='openpyxl') as equal_writer, \
-        pd.ExcelWriter(not_equal_output_file, engine='openpyxl') as not_equal_writer:
-    for sheet_name in xls.sheet_names:
-        df = xls.parse(sheet_name)
-        df = df.drop_duplicates()
-        equal_df = df[df['qtyord'] == df['qtyship']]
-        not_equal_df = df[df['qtyord'] != df['qtyship']]
+# Iterate through each sheet in the Excel file
+for sheet_name in excel_file.sheet_names:
+    # Read the sheet into a DataFrame
+    sheet_df = excel_file.parse(sheet_name)
 
-        # Save the equal DataFrame to the equal output file with the same sheet name
-        equal_df.to_excel(equal_writer, sheet_name=sheet_name, index=False)
+    # Filter based on the condition qtyord == qtyship
+    for_donna_df = sheet_df[sheet_df['qtyord'] == sheet_df['qtyship']]
+    # Filter based on the condition qtyord != qtyship
+    for_deepak_df = sheet_df[sheet_df['qtyord'] != sheet_df['qtyship']]
 
-        # Save the not equal DataFrame to the not equal output file with the same sheet name
-        not_equal_df.to_excel(not_equal_writer, sheet_name=sheet_name, index=False)
+    # Write the filtered DataFrames to the respective output files
+    for_donna_df.to_excel(output_file_for_donna, sheet_name, index=False)
+    for_deepak_df.to_excel(output_file_for_deepak, sheet_name, index=False)
 
-    equal_writer.book.save(filename=equal_output_file)
-    not_equal_writer.book.save(filename=not_equal_output_file)
+# Save the changes to the output files
+output_file_for_donna.close()
+output_file_for_deepak.close()
 
+# Outlook email settings
+outlook = win32.Dispatch('outlook.application')
+mail = outlook.CreateItem(0)
+mail.Subject = 'Output Files'
+mail.Body = 'Please find attached the output files.'
 
-for_donna_attachment_path = 'C:/Users/Ryan.Sissom/Documents/for_donna.xlsx'
-not_equal_output_attachment_path = 'C:/Users/Ryan.Sissom/Documents/not_equal_output.xlsx'
+# Attach the files to the email
+mail.Attachments.Add(output_file_for_donna_path)
+mail.Attachments.Add(output_file_for_deepak_path)
 
-# Create an Outlook application instance
-outlook = win32.gencache.EnsureDispatch('Outlook.Application')
+# Email recipients (replace with actual email addresses)
+mail.To = 'eli.romero@pssigroup.com'
 
-# Create and send an email for 'for_donna.xlsx'
-for_donna_mail = outlook.CreateItem(0)
-for_donna_mail.Subject = 'Attachment for Donna'
-for_donna_mail.Body = 'Please see the attached file for Donna.'
-for_donna_attachment = os.path.abspath(for_donna_attachment_path)
-for_donna_mail.Attachments.Add(for_donna_attachment)
-for_donna_mail.To = 'robert.oliver@pssigroup.com'
-for_donna_mail.Send()
-
-# Create and send an email for 'not_equal_output.xlsx' to a different recipient
-not_equal_output_mail = outlook.CreateItem(0)
-not_equal_output_mail.Subject = 'Attachment for a Deepak'
-not_equal_output_mail.Body = 'Please see attached file for Deepak.'
-not_equal_output_attachment = os.path.abspath(not_equal_output_attachment_path)
-not_equal_output_mail.Attachments.Add(not_equal_output_attachment)
-not_equal_output_mail.To = 'robert.oliver@pssigroup.com'
-not_equal_output_mail.Send()
+# Send the email
+mail.Send()
