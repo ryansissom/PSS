@@ -2,6 +2,7 @@ import json
 import tkinter as tk
 from tkinter import filedialog
 from tkinter import messagebox
+from tkinter import simpledialog
 import pandas as pd
 import openpyxl
 from openpyxl.utils.dataframe import dataframe_to_rows
@@ -10,33 +11,66 @@ from openpyxl import Workbook
 import shutil
 import os
 import time
+from datetime import date
+import requests
+import pyodbc
+from sqlalchemy import create_engine
+from sqlalchemy.exc import OperationalError
+import urllib
+
 
 # Read Only Template
-original_filepath = "C:/Users/Ryan.Sissom/OneDrive - PSS Industrial Group/Quote Tool Files/old_quote_template.xlsx"
-# Copied from Read Only into Write file
-copied_filepath = "C:/Users/Ryan.Sissom/OneDrive - PSS Industrial Group/Quote Tool Files/copied_quotes_template.xlsx"
+original_filepath = "//us-ad/UI_SC_Tool/old_quote_template.xlsx"
+# Finds Current Local User
+user_profile = os.environ.get('USERPROFILE')
+# Define the path to the PSS Industrial Group OneDrive folder
+one_drive_path = os.path.join(user_profile, 'OneDrive - PSS Industrial Group')
+# Append 'Desktop' to the OneDrive path to reach the Desktop folder
+desktop_path = os.path.join(one_drive_path, 'Desktop')
+# Define the path for the "quotes" folder within the Desktop directory
+quotes_folder_path = os.path.join(desktop_path, 'Quotes')
+working_filepath = os.path.join(quotes_folder_path, 'Working File.xlsx')
+export_template = "//us-ad/UI_SC_Tool/detailed_export.xlsx"
 # Master Json
-master_json = "C:/Users/Ryan.Sissom/OneDrive - PSS Industrial Group/Quote Tool Files/master_dictionary.json"
+master_json = "//us-ad/UI_SC_Tool/master_dictionary.json"
+
 
 # Opens Excel into a clearn write template for upload
 def open_clean_template():
+    current_date = date.today()
+    formatted_date = current_date.strftime('%m/%d/%Y')
     proceed = messagebox.askokcancel("Warning", "This will create a blank template.")
     if not proceed:
         return
-    # Define the destination path for the copy
-    destination_path = "C:/Users/Ryan.Sissom/Documents/quotes/"
+    if not os.path.exists(quotes_folder_path):
+        os.makedirs(quotes_folder_path)
     # Create a copy of the template file if it doesn't exist
-    shutil.copyfile(original_filepath, copied_filepath)
+    shutil.copyfile(original_filepath, working_filepath)
+    wb = load_workbook(working_filepath)
+    ws = wb.active
+    ws['B5'] = formatted_date
+    # customer_number = simpledialog.askstring("Customer Number", "Enter the Customer Number:", parent=root)
+    # while customer_number == None:
+    #     messagebox.showwarning("Error", "Cannot have empty customer number")
+    # ws['A1'] = customer_number
+    # shipTo = simpledialog.askstring("ShipTo Number", "Enter the ShipTo Number:", parent=root)
+    # ws['B1'] = shipTo
+    # whseID = simpledialog.askstring("Warehouse ID", "Enter the Warehouse ID:", parent=root)
+    # ws['A2'] = whseID
+    # shipVia = simpledialog.askstring("ShipVia", "Enter the ShipVia:", parent=root)
+    # ws['A4'] = shipVia
+    wb.save(working_filepath)
+
     # Open the copied Excel template in the default application
-    os.startfile(copied_filepath)
+    os.startfile(working_filepath)
 
 # Opens current work file
 def open_excel_template():
-    os.startfile(copied_filepath)
+    os.startfile(working_filepath)
 
 # def verify_header():
 #     # Verify Quote Header Info
-#     wb = openpyxl.load_workbook(copied_filepath)
+#     wb = openpyxl.load_workbook(working_filepath)
 #     sheet = wb.active
 #     # Define the cells to check for completeness and their corresponding error messages
 #     cells_to_check = {
@@ -64,16 +98,16 @@ def open_excel_template():
 
 # Scans descriptions for matching part numbers in master json and adds new desc:partno pairs
 def match_part_numbers():
-    wb = load_workbook(copied_filepath)
+    wb = load_workbook(working_filepath)
     ws = wb.active
     customer_number = ws['A1'].value
     customer_number = str(customer_number)
-    if len(customer_number) != 7:
-        return messagebox.showinfo("Error", "Incorrect Customer Number Format. Please make sure it is a 7 digit number")
-    if not customer_number.isdigit():
-        return messagebox.showinfo("Error", "Incorrect Customer Number Format. Please make sure it is a 7 digit number")
+    # if len(customer_number) > :
+    #     return messagebox.showinfo("Error", "Incorrect Customer Number Format. Please make sure it is a 7 digit number")
+    # if not customer_number.isdigit():
+    #     return messagebox.showinfo("Error", "Incorrect Customer Number Format. Please make sure it is a 7 digit number")
     # Match existing part numbers to list
-    copied_df = pd.read_excel(copied_filepath, header=7)
+    copied_df = pd.read_excel(working_filepath, header=7)
     copied_df['Item Description'] = copied_df['Item Description'].str.upper()
     with open(master_json, "r") as json_file:
         data = json.load(json_file)
@@ -105,17 +139,17 @@ def match_part_numbers():
     for r_idx, row in enumerate(rows, start_row):
         for c_idx, value in enumerate(row, start_col):
             ws.cell(row=r_idx, column=c_idx, value=value)
-    wb.save(copied_filepath)
-    os.startfile(copied_filepath)
+    wb.save(working_filepath)
+    os.startfile(working_filepath)
 
 #standardize formats, check for fields, and save file to local system
-def save_file_for_upload():
-    wb = load_workbook(copied_filepath)
+def addParts():
+    wb = load_workbook(working_filepath)
     ws = wb.active
     customer_number = ws['A1'].value
     customer_number = str(customer_number)
     # Check no edits to existing archived values have been made
-    copied_df = pd.read_excel(copied_filepath, header=7)
+    copied_df = pd.read_excel(working_filepath, header=7)
     copied_df_partno_only = copied_df.dropna(subset=['Item #'])
     data_dict = dict(zip(copied_df_partno_only["Item Description"], copied_df_partno_only["Item #"]))
     with open(master_json, "r") as json_file:
@@ -133,34 +167,194 @@ def save_to_local():
     file_path = filedialog.asksaveasfilename(defaultextension=".xlsx", filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")])
     if file_path:
         # Copy the current Excel file to the specified location
-        shutil.copyfile(copied_filepath, file_path)
+        shutil.copyfile(working_filepath, file_path)
         messagebox.showinfo("File Saved", f"File saved successfully at {file_path}")
+
+def load_unfinished_excel():
+    print("blank")
+
+# Upload to SXe
+def get_token():
+    token_url = "https://pssionapp.us-ad.pssigroup.com/InforIntSTS/connect/token"
+    client_id = "infor~37ExWK4W3E8xq6JkbUhERShJV1iVp1q8ww2GYdW_tOI"
+    client_secret = "ezgNBW5H-sVedqfkWYkRaUQ_-af8HL45OULxLmcp58GqWiG2CTvqIpcw2t1uChZ_H9Z2z-I0QHG-gLGLc6sK6A"
+    client_user = "infor#uYmwls_Uv-TN5VTORJKIU0JUg-Z0zwsl28x3lxG69r9rv9B2UeFCLta9XQOU8UNlW-1Ac2WOI_6NQOjF16H4dQ"
+    client_password = "jx0BjpFIEvR7-RdVo7hCKbjEpFAEQ3NuOOr5SUYyc39eA5hTAaoESV3uc7XlN1D9PB6A6SADEtO4ev8h7yP31Q"
+    token_payload = {'username': client_user, 'password': client_password, 'grant_type': 'password'}
+    token_response = requests.post(token_url, data=token_payload, verify=False, allow_redirects=False,
+                                   auth=(client_id, client_secret))
+    if token_response.status_code == 200:
+        print("Successfully obtained a new token")
+        tokens = json.loads(token_response.text)
+        print(tokens)
+        return tokens['access_token']
+    else:
+        print("Error Obtaining Token")
+
+currentPoNumber = None
+def pushQuote():
+    global currentPoNumber
+    wb = load_workbook(working_filepath)
+    ws = wb.active
+    custNo = ws['A1'].value
+    poNo = ws['A3'].value
+    whse = ws['A2'].value
+    shipTo = ws['B1'].value
+    if shipTo == 'Ship To' or shipTo is None:
+        messagebox.showerror("Data Error", "Missing Values in Ship To (B2)")
+    excel_data = pd.read_excel(working_filepath, header=7)
+    if excel_data['Item #'].isna().any():
+        messagebox.showerror("Data Error", "Missing Values in Item #")
+        return
+    if excel_data['Quantity'].isna().any():
+        messagebox.showerror("Data Error", "Missing Values in Quantity")
+        return
+    if excel_data['Item #'].duplicated().any():
+        messagebox.askokcancel("Duplicates Found", "Verify you intended to include duplicated part numbers")
+
+    api_url = "https://pssionapp.us-ad.pssigroup.com:7443/infor/SX/rest/sxapirestservice/sxapioefullordermntv6"
+    token = get_token()
+    api_call_headers = {'Authorization': 'Bearer ' + token, 'Accept': 'application/json',
+                        'Content-type': 'application/json'}
+    #this needs to be saved as a local copy
+    json_template = "//us-ad/UI_SC_Tool/fullorderv6_template.json"
+    order_json = os.path.join(quotes_folder_path, 'upload_template.json')
+    if order_json not in quotes_folder_path:
+        shutil.copyfile(json_template, order_json)
+    with open(order_json, 'r') as file:
+        request = json.load(file)
+    # Set order data headers
+    request_order_data = request["sxt_orderV4"]["sxt_orderV4"][0]
+    request_order_data["poNo"] = poNo
+    request_order_data["whse"] = whse
+    request_custNo = request["sxt_customer"]["sxt_customer"][0]
+    request_custNo["custNo"] = custNo
+
+    # Set new part entries
+    json_parts = request["sxt_itemV4"]["sxt_itemV4"]
+    for index, row in excel_data.iterrows():
+        index += 1
+        index = str(index)
+        new_part_dict = {
+            "lineIden": index,
+            "qtyOrd": row["Quantity"],
+            "sellerProd": row["Item #"]
+        }
+        json_parts.append(new_part_dict)
+    print(json_parts)
+    payload = {'request': request}
+    print("Payload")
+    print(payload)
+    api_call_response = requests.post(api_url, json=payload, headers=api_call_headers, verify=False)
+    response_json = api_call_response.json()
+    print(response_json)
+    data1_value = response_json['response']['sxt_func_ack']['sxt_func_ack'][0]['data1']
+    sxePoNum = data1_value[:-3]  # Slice the string to remove the last three characters
+    print(f'Quote Number: {sxePoNum}')
+    currentPoNumber = sxePoNum
+
+def buildExport():
+    workbook = load_workbook(working_filepath)
+    ws = workbook.active
+
+def getPrices():
+    # Variables for login parts
+    # server = 'PSSAPPS21'
+    # database = 'NXT'
+    # username = 'RSAutomation'
+    # password = 'N94vahGuS9DiYtU'
+
+    params = urllib.parse.quote_plus("DRIVER={SQL Server};SERVER=pssapps21.us-ad.pssigroup.com;DATABASE=NXT;UID=SCAutomation;PWD=~)R{e>W9t2'Gwvwb;=No;APP=PDSPS")
+    conn_str = 'mssql+pyodbc:///?odbc_connect={}'.format(params)
+
+    response = messagebox.askyesno("Confirm", "Is this your current quote (Yes) or are you looking up a previous one? (No)")
+    if response:
+        try:
+            orderNumber = '3012248'
+        except:
+            messagebox.showwarning("Error", "No Current Quote in Process")
+            return
+    else:
+        orderNumber = simpledialog.askstring("Input", "Enter the order number:", parent=root)
+
+    try:
+        # Establishing the connection
+        engine = create_engine(conn_str)
+        # Print success message if connection is successful
+        print("Connection to MS SQL Server successful!")
+        # Now you can use the engine object to execute SQL queries or ORM operations
+    except OperationalError as e:
+        print(f"Error connecting to MS SQL Server: {e}")
+
+    query = f"""
+     select distinct o.orderno, o.shipprod 'Item #', o.proddesc 'Description', o.qtyord 'Quantity', o.unit 'Unit of Measure', o.price, '' 'Blank',o.prodcost, i.avgcost, 
+    cast(round(((o.price - o.prodcost)/o.price)*100, 2) as decimal(10,2))'Std Margin', 
+    cast(round(((o.price - i.avgcost)/o.price)*100, 2) as decimal(10,2))'Avg Margin', i.qtyonhand-i.qtycommit-i.qtyreservd 'Quantity Available',
+    o.orderaltno 'Stock/Buy?',i.leadtmavg, (o.qtyord * o.price) 'Ext. Price' , (o.qtyord * o.prodcost) 'Ext. Std Cost', (o.qtyord * i.avgcost) 'Ext. Avg Cost', 
+    o.discpct
+    from dbo.icsw i
+    join dbo.oeel o on i.prod = o.shipprod 
+    join dbo.oeel on i.whse = o.whse
+    where o.orderno = {orderNumber}
+    """
+    sql_df = pd.read_sql_query(query, engine)
+    if response:
+        pd.set_option('display.max_columns', None)
+        excel_df = pd.read_excel(working_filepath, header=7)
+        print(excel_df)
+        print("OSDFJLdsjlaosidgsdljf;JA:SJF;lajsiodgojagelk;jlksAJKLGe;wlj")
+        print(sql_df)
+        merged_df = pd.merge(sql_df, excel_df, on='Item #')
+        print("merged_df")
+        print(merged_df)
+        final_df = merged_df[['Item #', 'Item Description', 'Quantity_x', 'Unit of Measure','price','Blank', 'prodcost',
+                              'avgcost', 'Std Margin', 'Avg Margin', 'Quantity Available', 'Stock/Buy?', 'leadtmavg',
+                              'Ext. Price', 'Ext. Std Cost', 'Ext. Avg Cost', 'discpct']]
+        print("final df")
+        print(final_df)
+    else:
+        final_df = sql_df[['shipprod', 'Description', 'Quantity', 'Unit of Measure', 'price', 'Blank', 'prodcost', 'avgcost',
+                           'Std Margin', 'Avg Margin','Quantity Available','Stock/Buy?', 'leadtmavg', 'Ext. Price', 'Ext. Std Cost', 'Ext. Avg Cost', 'discpct']]
+
+
+    export_filepath = os.path.join(quotes_folder_path, f"Quote {orderNumber}.xlsx")
+    shutil.copyfile(export_template, export_filepath)
+    wb = load_workbook(filename=export_filepath)
+    sheet_name = 'Quote'
+    ws = wb[sheet_name]
+    start_row = 8
+    # Write DataFrame values
+    for row, rowData in enumerate(final_df.values, start=start_row + 1):
+        for col, value in enumerate(rowData, start=1):
+            ws.cell(row=row, column=col, value=value)
+    wb.save(export_filepath)
+    os.startfile(export_filepath)
 
 root = tk.Tk()
 root.title("Quote Tool")# Get the screen width and height
+# Button details stored in a list of tuples for easier grid placement
+buttons = [
+    ("Open Clean Template", open_clean_template),
+    ("Open Excel Template", open_excel_template),
+    ("Match Part Numbers", match_part_numbers),
+    ("Save New Parts", addParts),
+    ("Upload Quote", pushQuote),
+    ("Get Prices", getPrices)
+]
+for index, (text, command) in enumerate(buttons):
+    row = index // 2  # Integer division to switch row after every 2 buttons
+    col = index % 2   # Remainder to cycle through columns 0, 1
+    button = tk.Button(root, text=text, command=command)
+    button.grid(row=row, column=col, padx=10, pady=10, sticky="nsew")
+
+root.update_idletasks()  # Update the internal states to get correct dimensions
 screen_width = root.winfo_screenwidth()
 screen_height = root.winfo_screenheight()
-# Calculate the position to center the window
-x = (screen_width - 400) // 2
-y = (screen_height - 200) // 3
-# Set the window position and size
-root.geometry(f"400x400+{x}+{y}")
-
-# Create buttons to interact with the Excel template
-clean_button = tk.Button(root, text="Open Clean Template", command=open_clean_template)
-clean_button.pack(pady=20)
-
-open_button = tk.Button(root, text="Open Excel Template", command=open_excel_template)
-open_button.pack(pady=20)
-
-match_button = tk.Button(root, text="Get Parts Data", command= match_part_numbers)
-match_button.pack(pady=20)
-
-upload_button = tk.Button(root, text="Upload Part Numbers to Database", command=save_file_for_upload)
-upload_button.pack(pady=20)
-
-save_button = tk.Button(root, text="Save File to PC", command=save_to_local)
-save_button.pack(pady=20)
+window_width = root.winfo_width()
+window_height = root.winfo_height()
+position_right = int(screen_width/2 - window_width/2)
+position_down = int(screen_height/2 - window_height/2)
+root.geometry(f"+{position_right}+{position_down}")
 
 # Run the Tkinter event loop
 root.mainloop()
