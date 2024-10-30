@@ -1,0 +1,53 @@
+import pandas as pd
+import map
+from shapely.geometry import Point, Polygon
+from geopy.distance import geodesic
+
+# Read the Excel file
+file_path = 'C:/Users/Ryan.Sissom/Downloads/boombangwoop.xlsx'
+df = pd.read_excel(file_path)
+
+# Define the coordinates for the circle and the trapezoid
+circle_center = (29.644848, -95.078991)
+circle_radius = 20  # in miles
+
+trapezoid_coords = [
+    (28.928702524124716, -95.31126323632232),
+    (29.70409082255912, -95.37829941452604),
+    (29.844001118602446, -94.98619105872969),
+    (29.37485497496592, -94.40901102919972),
+    (28.928702524124716, -95.31126323632232)
+]
+
+# Create a Polygon object for the trapezoid
+trapezoid_polygon = Polygon(trapezoid_coords)
+
+# Create a Folium map centered at the circle center
+m = folium.Map(location=circle_center, zoom_start=10)
+
+# Add points from the DataFrame to the map
+for index, row in df.iterrows():
+    point = (row['lat'], row['long'])
+    folium.Marker(point, popup=f"Name: {row['CustomerName']}<br>Customer Number: {row['CustomerNumber']}").add_to(m)
+
+# Add circle to the map
+folium.Circle(
+    location=circle_center,
+    radius=circle_radius*1609.34,  # convert miles to meters
+    color='blue',
+    fill=True,
+    fill_opacity=0.2,
+    popup='Circle Area'
+).add_to(m)
+
+# Add trapezoid to the map
+folium.Polygon(
+    locations=trapezoid_coords,
+    color='red',
+    fill=True,
+    fill_opacity=0.2,
+    popup='Trapezoid Area'
+).add_to(m)
+
+# Save the map to an HTML file
+m.save('map_with_points.html')
