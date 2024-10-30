@@ -1,0 +1,96 @@
+import time
+from sqlalchemy import create_engine
+from sqlalchemy.exc import OperationalError
+import pandas as pd
+import requests
+from bs4 import BeautifulSoup
+import csv
+
+# Open write excel file
+csv_file = ('matched_data.csv')
+
+
+# Connection string for your MS SQL Server
+connection_string = 'mssql+pyodbc://pssprodb01/NXT?driver=ODBC+Driver+17+for+SQL+Server'
+
+
+# Function to establish connection to MS SQL Server
+def connect_to_database():
+    try:
+        engine = create_engine(connection_string)
+        print("Connection to MS SQL Server successful!")
+        return engine
+    except OperationalError as e:
+        print(f"Error connecting to MS SQL Server: {e}")
+        return None
+
+
+# Function to fetch data from SQL query
+def fetch_customer_data(engine):
+    query = """
+    SELECT [Customer Name], [Zip Code]
+      FROM [NXT].[dbo].[vw_DW_Customers]
+      WHERE [Customer IsActive] = 'Yes'
+    """
+    df = pd.read_sql_query(query, engine)
+    return df
+
+
+# Function to scrape and match data, and save to Excel
+def scrape_and_match_data(df):
+
+    for index, row in df.iterrows():
+        target_zip = row['Zip Code']
+        company_name = row['Customer Name']
+
+        # Encode company name for URL
+        encoded_company_name = company_name.replace(" ", "%20")
+        search_url = f"https://siccode.com/search-business/{encoded_company_name}"
+        print(f"Searching for {company_name} ({target_zip})...")
+
+        try:
+            response = requests.get(search_url, timeout=10)  # Set a timeout for the request
+            response.raise_for_status()  # Check if request was successful
+            soup = BeautifulSoup(response.content, 'html.parser')
+
+            country_divs = soup.find_all('div', class_='country')
+
+            for div in country_divs:
+                address = div.find('span')
+                if address:
+                    addressText = address.get_text(strip=True)
+                    zip_code_text = addressText.split(',')[-1].strip()
+
+                    if zip_code_text == target_zip:
+                        print("Match found!")
+
+                        # Find the sibling 'description' div right after the 'country' div
+                        description_div = div.find_next_sibling('div', class_='description')
+                        if description_div:
+                            description_span = description_div.find('span')
+                            if description_span:
+                                description_text = description_span.get_text(strip=True)
+                                print("Description:", description_text)
+                                with open(csv_file, 'a', newline='') as file:
+                                    writer = csv.writer(file)
+                                    data_to_append = [company_name, description_text]
+                                    writer.writerow(data_to_append)
+
+
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching data for {company_name}: {e}")
+
+        time.sleep(1)  # Add a delay between requests to be respectful of the website
+
+
+# Main script execution
+def main():
+    engine = connect_to_database()
+    if engine:
+        df = fetch_customer_data(engine)
+        scrape_and_match_data(df)
+        engine.dispose()
+
+
+if __name__ == "__main__":
+    main()
