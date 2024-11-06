@@ -1,0 +1,50 @@
+import xml.etree.ElementTree as ET
+from collections import defaultdict
+import json
+
+# Load and parse the XML file
+try:
+    tree = ET.parse('C:/Users/Ryan.Sissom/PycharmProjects/pythonProject/csdXML.xml')  # Update with your file path
+    root = tree.getroot()
+except ET.ParseError as e:
+    print(f"Failed to parse XML: {e}")
+    exit(1)
+
+# Create a defaultdict to hold the structured data
+sales_data = defaultdict(list)
+
+# Define the namespace for parsing
+namespace = {'default': 'http://schema.infor.com/InforOAGIS/2'}
+
+# Iterate through each PromisedDtToCSV element
+entries = root.findall('.//default:PromisedDtToCSV', namespace)
+print(f'Found {len(entries)} entries.')
+
+for promised_dt in entries:
+    # Extract the relevant fields
+    cono = promised_dt.find('default:cono', namespace).text
+    orderno = promised_dt.find('default:orderno', namespace).text
+    ordersuf = promised_dt.find('default:ordersuf', namespace).text
+    stagecd = promised_dt.find('default:stagecd', namespace).text
+    promised_dt_value = promised_dt.find('default:PromisedDt', namespace).text
+    transtype = promised_dt.find('default:transtype', namespace).text
+    slsrepin = promised_dt.find('default:slsrepin', namespace).text
+    slsrepout = promised_dt.find('default:slsrepout', namespace).text
+
+    # Append the entry to the corresponding slsrepin key in the dictionary
+    sales_data[slsrepin].append({
+        'cono': cono,
+        'orderno': orderno,
+        'ordersuf': ordersuf,
+        'stagecd': stagecd,
+        'PromisedDt': promised_dt_value,
+        'transtype': transtype,
+        'slsrepout': slsrepout
+    })
+
+# Convert the defaultdict to a regular dict for cleaner output
+sales_data = dict(sales_data)
+print("Sales Data in JSON format:")
+print(json.dumps({'SalesRepInsData': sales_data}, indent=4))
+
+root_xml = ET.Element('SalesRepInsData')
